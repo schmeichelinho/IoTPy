@@ -3,7 +3,7 @@ from fcntl import ioctl
 import struct
 import array
 from IoTPy.core.spi import SPI
-from IoTPy.linux.ioctl_def import IOW
+from IoTPy.atmel.ioctl_def import IOW
 
 
 class AtmelSPI(SPI):
@@ -13,20 +13,26 @@ class AtmelSPI(SPI):
 	SPI_IOC_WR_BITS_PER_WORD = IOW(SPI_IOC_MAGIC, 3, 1)
 	SPI_IOC_WR_MAX_SPEED_HZ = IOW(SPI_IOC_MAGIC, 4, 4)
 
-	def __init__(self, spidev, clock, mode, cs):
-		self.name = '/dev/spidev%d.%d' % (spidev, cs)
+	def __init__(self, name, clock, mode, cs):
+		self.name = '/dev/spidev%d.%d' % (name, cs)
 		self.clock = clock
 		self.mode = mode
 
 	def __enter__(self):
 		try:
-			self._file = open(self.name, "w+")
+			self._file = open(self.name, "rw+")
 		except IOError:
 			warn("Could not open the desired spidev.")
 		try:
-			ioctl(self._file, SPI_IOC_WR_MODE, self.mode, True)
-			ioctl(self._file, SPI_IOC_WR_BITS_PER_WORD, 8, True)
-			ioctl(self._file, SPI_IOC_WR_MAX_SPEED_HZ, self.clock, True)
+			buf = array.array('b')
+			buf.append(self.mode)
+			ioctl(self._file, self.SPI_IOC_WR_MODE, buf, True)
+			buf = array.array('b')
+			buf.append(8)
+			ioctl(self._file, self.SPI_IOC_WR_BITS_PER_WORD, buf, True)
+			buf = struct.pack("@L", self.clock)
+			buf = array.array('b', buf)
+			ioctl(self._file, self.SPI_IOC_WR_MAX_SPEED_HZ, buf, True)
 		except:
 			raise RuntimeError("Error while setting up the SPI.")
 		return self
@@ -45,11 +51,11 @@ class AtmelSPI(SPI):
 		size = len(data_out)
 		buf = ctypes.c_buffer(data_out, size)
 
-		txfer = struct.pack("@QQIIHBBxxxx", ctypes.addressof(buf), ctypes.addressof(buf), size, 0, 0, 8, 0)
+		txfer = struct.pack("@QQIIHBBBBxx", ctypes.addressof(buf), ctypes.addressof(buf), size, self.clock, 0, 8, 0, 1, 1)
 		txfer = array.array('b', txfer)
 
 		try:
-			ioctl(self._file, SPI_IOC_MESSAGE, txfer, True)
+			ioctl(self._file, self.SPI_IOC_MESSAGE, txfer, True)
 		except:
 			raise RuntimeError("Error while performing SPI transaction.")
 
